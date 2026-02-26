@@ -378,9 +378,11 @@
 
         // Setup CORS Proxies to bypass browser blocks (with fallbacks)
         const CORS_PROXIES = [
-            (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-            (url) => `https://api.cors.lol/?url=${encodeURIComponent(url)}`,
-            (url) => `https://cors-anywhere.herokuapp.com/${url}`
+            // Removed encodeURIComponent: mangling the "https://" protocol breaks the 
+            // proxy's ability to parse the URL during preflight (OPTIONS) requests.
+            (url) => `https://corsproxy.io/?${url}`,
+            (url) => `https://api.codetabs.com/v1/proxy?quest=${url}`,
+            (url) => `https://thingproxy.freeboard.io/fetch/${url}`
         ];
 
         async function fetchWithProxy(targetUrl, options) {
