@@ -1,5 +1,5 @@
 # File Health
-A html / javascript app that leverages the virus total api to scan files for viruses.
+A html / javascript app that leverages the VirusTotal api to scan files for viruses. A VirusTotal API Key is required.
 
 Initially a hash is sent to test whether the file has already been scanned to cut down on the upload.
 
