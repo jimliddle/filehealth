@@ -185,11 +185,11 @@
             
             <!-- Scanning State -->
             <div id="scanProgress" class="hidden flex-col items-center justify-center w-full py-12">
-                <div class="loader-ring mb-6">
+                <div id="scanLoader" class="loader-ring mb-6">
                     <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4"></path></svg>
                 </div>
                 <h3 class="text-xl font-bold mb-2" id="scanStatusTitle">Analyzing File...</h3>
-                <p class="t-text-muted" id="scanStatusDesc">Calculating local hash...</p>
+                <div id="scanStatusDesc" class="t-text-muted flex flex-col items-center">Calculating local hash...</div>
             </div>
 
             <!-- Result State -->
@@ -239,7 +239,7 @@
                 <label class="block text-sm font-semibold mb-2">VirusTotal API Key</label>
                 <input type="password" id="apiKeyInput" class="t-input w-full p-3 outline-none focus:ring-2 focus:ring-rose-500" placeholder="Enter your v3 API key">
                 <p class="text-xs t-text-muted mt-2">Required to scan files. Get a free key at <a href="https://virustotal.com" target="_blank" class="underline hover:text-rose-500">virustotal.com</a>.</p>
-                <p class="text-xs text-rose-500 font-semibold mt-2">Note: API calls are routed through a public CORS proxy (corsproxy.io) to bypass browser security restrictions.</p>
+                <p class="text-xs text-rose-500 font-semibold mt-2">Note: API calls are routed through a secure CORS proxy to bypass browser restrictions on GitHub Pages.</p>
             </div>
 
             <button id="saveSettingsBtn" class="t-btn-primary w-full py-3">Save Settings</button>
@@ -378,32 +378,37 @@
 
         // Setup CORS Proxies to bypass browser blocks (with fallbacks)
         const CORS_PROXIES = [
-            // Removed encodeURIComponent: mangling the "https://" protocol breaks the 
-            // proxy's ability to parse the URL during preflight (OPTIONS) requests.
-            (url) => `https://corsproxy.io/?${url}`,
-            (url) => `https://api.codetabs.com/v1/proxy?quest=${url}`,
-            (url) => `https://thingproxy.freeboard.io/fetch/${url}`
+            (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+            // This fallback handles preflight perfectly, but throws a 403 if it needs to be unlocked by the user
+            (url) => `https://cors-anywhere.herokuapp.com/${url}`
         ];
 
         async function fetchWithProxy(targetUrl, options) {
-            let lastError;
+            let lastErrorMsg = "";
             for (const proxyFn of CORS_PROXIES) {
                 const proxyUrl = proxyFn(targetUrl);
                 try {
                     const response = await fetch(proxyUrl, options);
-                    // If the proxy itself returns a gateway error, throw to trigger fallback
+                    
+                    // Specific check: If cors-anywhere throws 403, it means the user needs to visit the demo unlock page
+                    if (response.status === 403 && proxyUrl.includes('cors-anywhere')) {
+                        throw new Error("CORS_UNLOCK_REQUIRED");
+                    }
+                    
                     if (!response.ok && [502, 503, 504].includes(response.status)) {
                         throw new Error(`Proxy error: ${response.status}`);
                     }
-                    // Return valid responses (including VT's expected 404s for unknown files)
+                    
                     return response;
                 } catch (err) {
                     console.warn(`Proxy failed (${proxyUrl}):`, err.message);
-                    lastError = err;
-                    // Continue to the next proxy in the array
+                    if (err.message === "CORS_UNLOCK_REQUIRED") {
+                        throw err; // Escalate immediately to show UI prompt
+                    }
+                    lastErrorMsg = err.message;
                 }
             }
-            throw new Error("All CORS proxies failed. " + (lastError ? lastError.message : ""));
+            throw new Error("All CORS proxies failed. " + lastErrorMsg);
         }
 
         // UI Helpers
@@ -418,7 +423,7 @@
 
         const updateProgress = (title, desc) => {
             scanStatusTitle.innerText = title;
-            scanStatusDesc.innerText = desc;
+            scanStatusDesc.innerHTML = `<p>${desc}</p>`;
         };
 
         // File Selection Events
@@ -475,6 +480,9 @@
         }
 
         async function startScanProcess(file) {
+            // Reset spinner UI in case of previous proxy errors
+            document.getElementById('scanLoader').style.display = 'flex';
+            scanStatusTitle.classList.remove('text-rose-500');
             setUIState('progress');
             
             try {
@@ -532,8 +540,35 @@
 
             } catch (err) {
                 console.error(err);
-                alert(`Scan failed: ${err.message}\n(Ensure your API key is correct and valid).`);
-                setUIState('upload');
+                
+                // --- CUSTOM CORS ERROR UI INTERCEPT ---
+                if (err.message === "CORS_UNLOCK_REQUIRED" || err.message.includes("All CORS proxies failed")) {
+                    scanStatusTitle.innerText = "Connection Blocked";
+                    document.getElementById('scanLoader').style.display = 'none';
+                    
+                    scanStatusDesc.innerHTML = `
+                        <div class="mt-6 text-left t-text-main max-w-sm w-full">
+                            <div class="p-5 rounded-xl border bg-black/5" style="border-color: var(--text-muted)">
+                                <h4 class="font-bold mb-2 flex items-center gap-2" style="color: var(--danger-color)">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    Proxy Unlock Required
+                                </h4>
+                                <p class="text-sm mb-4 leading-relaxed">Browser security blocks direct API connections from GitHub Pages.</p>
+                                <a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" class="t-btn-primary flex items-center justify-center w-full py-3 mb-3 text-sm font-bold shadow-sm">1. Click Here to Unlock Proxy</a>
+                                <p class="text-xs t-text-muted text-center">Click the button on that page, then try scanning again.</p>
+                            </div>
+                        </div>
+                        <button id="retryScanErrorBtn" class="mt-6 font-semibold underline text-sm t-text-muted hover:text-black transition">Cancel and Go Back</button>
+                    `;
+
+                    document.getElementById('retryScanErrorBtn').addEventListener('click', () => {
+                        document.getElementById('fileInput').value = '';
+                        setUIState('upload');
+                    });
+                } else {
+                    alert(`Scan failed: ${err.message}\n(Ensure your API key is correct and valid).`);
+                    setUIState('upload');
+                }
             }
         }
 
