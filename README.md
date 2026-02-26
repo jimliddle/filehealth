@@ -5,7 +5,7 @@ Although this can be downloaded, it is also hosted on Github Pages at: https://j
 
 Initially a hash is sent to test whether the file has already been scanned to cut down on the upload.
 
-The App uses CORS proxies which means the HTML file does not need to be served and can simply be double clicked and ran as a file.
+The App uses CORS proxies which means the HTML file does not need to be served and can simply be double clicked and ran as a file. This does not work so well with Github Pages and although I have implemented a work around for this, you can enter your own cloudflare worker (or any other custom proxy endpoint) in the settings.
 
 History of files scanned is kept in the browser using indexeddb and can be cleared as required.
 
