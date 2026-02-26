@@ -239,7 +239,12 @@
                 <label class="block text-sm font-semibold mb-2">VirusTotal API Key</label>
                 <input type="password" id="apiKeyInput" class="t-input w-full p-3 outline-none focus:ring-2 focus:ring-rose-500" placeholder="Enter your v3 API key">
                 <p class="text-xs t-text-muted mt-2">Required to scan files. Get a free key at <a href="https://virustotal.com" target="_blank" class="underline hover:text-rose-500">virustotal.com</a>.</p>
-                <p class="text-xs text-rose-500 font-semibold mt-2">Note: API calls are routed through a secure CORS proxy to bypass browser restrictions on GitHub Pages.</p>
+            </div>
+
+            <div class="mb-6">
+                <label class="block text-sm font-semibold mb-2">Custom CORS Proxy (Optional)</label>
+                <input type="url" id="proxyUrlInput" class="t-input w-full p-3 outline-none focus:ring-2 focus:ring-rose-500" placeholder="e.g., https://my-worker.workers.dev/">
+                <p class="text-xs t-text-muted mt-2">Route requests through your own Cloudflare Worker. Leave blank to use default public proxies.</p>
             </div>
 
             <button id="saveSettingsBtn" class="t-btn-primary w-full py-3">Save Settings</button>
@@ -283,11 +288,14 @@
         const closeSettingsBtn = document.getElementById('closeSettingsBtn');
         const saveSettingsBtn = document.getElementById('saveSettingsBtn');
         const apiKeyInput = document.getElementById('apiKeyInput');
+        const proxyUrlInput = document.getElementById('proxyUrlInput');
         
         let vtApiKey = localStorage.getItem('vt-api-key') || '';
+        let customProxyUrl = localStorage.getItem('custom-proxy-url') || '';
 
         settingsBtn.addEventListener('click', () => {
             apiKeyInput.value = vtApiKey;
+            proxyUrlInput.value = customProxyUrl;
             settingsModal.classList.remove('hidden');
         });
 
@@ -299,7 +307,11 @@
 
         saveSettingsBtn.addEventListener('click', () => {
             vtApiKey = apiKeyInput.value.trim();
+            customProxyUrl = proxyUrlInput.value.trim();
+            
             localStorage.setItem('vt-api-key', vtApiKey);
+            localStorage.setItem('custom-proxy-url', customProxyUrl);
+            
             closeModal();
             if (!vtApiKey) {
                 alert("Warning: Without an API key, you cannot scan files.");
@@ -376,16 +388,27 @@
         const scanStatusDesc = document.getElementById('scanStatusDesc');
         const scanAnotherBtn = document.getElementById('scanAnotherBtn');
 
-        // Setup CORS Proxies to bypass browser blocks (with fallbacks)
-        const CORS_PROXIES = [
-            (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-            // This fallback handles preflight perfectly, but throws a 403 if it needs to be unlocked by the user
-            (url) => `https://cors-anywhere.herokuapp.com/${url}`
-        ];
-
         async function fetchWithProxy(targetUrl, options) {
             let lastErrorMsg = "";
-            for (const proxyFn of CORS_PROXIES) {
+            let activeProxies = [];
+
+            // 1. Add Custom Proxy if provided by the user in settings
+            if (customProxyUrl) {
+                activeProxies.push((url) => {
+                    // Detect if the custom proxy uses a query param (like ?url=)
+                    if (customProxyUrl.endsWith('=')) {
+                        return customProxyUrl + encodeURIComponent(url);
+                    }
+                    // Otherwise treat it as a path-based proxy (like https://proxy.com/https://...)
+                    return customProxyUrl + (customProxyUrl.endsWith('/') ? '' : '/') + url;
+                });
+            }
+
+            // 2. Add public fallbacks
+            activeProxies.push((url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`);
+            activeProxies.push((url) => `https://cors-anywhere.herokuapp.com/${url}`);
+
+            for (const proxyFn of activeProxies) {
                 const proxyUrl = proxyFn(targetUrl);
                 try {
                     const response = await fetch(proxyUrl, options);
